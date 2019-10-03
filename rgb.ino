@@ -1,6 +1,9 @@
 #include <EEPROM.h>
+
 #define modeCount 24
 
+boolean savedIsOn;
+byte savedMode;
 long saveCounter = 0;
 boolean necessarySave = false;
 byte red = 255;
@@ -14,6 +17,7 @@ boolean increaseMode = false;
 long lastTime = 0;
 boolean isOn = true;
 int buttonCounter = 0;
+
 void setup() {
   pinMode(5, OUTPUT);
   pinMode(6, OUTPUT);
@@ -23,18 +27,25 @@ void setup() {
   pinMode(11, OUTPUT);
   initFastPWM();
   attachInterrupt(digitalPinToInterrupt(2), changeMode, FALLING);
-  TIMSK2 = (TIMSK2 & B11111110) | 0x01; //timer interrupt
-  TCCR2B = (TCCR2B & B11111000) | 0x07; //timer interrupt
   load();
-  Serial.begin(9600);
+
 }
 void save() {
-  EEPROM.write(50, mode);
-  EEPROM.write(51, isOn);
+  if (savedMode != mode) {
+    EEPROM.write(50, mode);
+    savedMode = mode;
+  }
+  if (savedIsOn != isOn) {
+    EEPROM.write(51, isOn);
+    savedIsOn = isOn;
+  }
+  necessarySave = false;
 }
 void load() {
   mode = EEPROM.read(50);
   isOn = EEPROM.read(51);
+  savedMode = mode;
+  savedIsOn = isOn;
 }
 void initFastPWM() {
   TCCR2A = _BV(COM2A1) | _BV(COM2B1) | _BV(WGM21) | _BV(WGM20); //fast pwm
@@ -84,8 +95,8 @@ void changeMode() {
   }
 }
 
-ISR(TIMER2_OVF_vect) {
-  if (isOn) {
+void check() {
+  if (isOn && digitalRead(2) != LOW) {
     if (increaseMode && millis() - lastTime >= 250) {
       if (mode < modeCount - 1) {
         mode++;
@@ -98,18 +109,12 @@ ISR(TIMER2_OVF_vect) {
     }
   }
   if (digitalRead(2) == LOW) {
-    if (buttonCounter < 500) buttonCounter++;
-    if (buttonCounter == 500) {
+    if (buttonCounter < 1000) buttonCounter++;
+    if (buttonCounter == 1000) {
       isOn = !isOn;
-      if (!isOn) {
-        if (mode > 0) {
-          mode--;
-        } else {
-          mode = modeCount - 1;
-        }
-      }
       buttonCounter++;
       necessarySave = true;
+      reset();
       saveCounter = millis();
     }
   } else {
@@ -117,12 +122,10 @@ ISR(TIMER2_OVF_vect) {
   }
   if (millis() - saveCounter > 10000 && necessarySave) {
     save();
-    necessarySave = false;
-    Serial.println("saved");
   }
 }
 void loop() {
-
+  check();
   if (counter == 0)
     switch (mode) {
     case 0:
